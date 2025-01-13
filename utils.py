@@ -5,6 +5,11 @@ from Crypto.Random import get_random_bytes
 import base64
 from cryptography.fernet import Fernet
 import hashlib
+from cryptography.hazmat.primitives.asymmetric import rsa
+from cryptography.hazmat.primitives import hashes
+from cryptography.hazmat.primitives.asymmetric import padding
+from cryptography.hazmat.backends import default_backend
+from cryptography.hazmat.primitives import serialization
 
 def send_large_number(sock, number):
     """发送一个大整数通过套接字。
@@ -113,7 +118,7 @@ fernet = Fernet(fixed_key)
 
 def commit(m, RA):
     # 使用哈希函数生成承诺c
-    c = hashlib.sha256(str(m).encode() + RA).hexdigest()
+    c = hashlib.sha256(m + RA).hexdigest()
     # 使用固定密钥加密RA
     d = fernet.encrypt(RA)
     return c, d
@@ -122,22 +127,81 @@ def open(m, c, d):
     # 使用固定密钥解密d，得到RA
     RA = fernet.decrypt(d)
     # 使用哈希函数验证承诺c
-    c_prime = hashlib.sha256(str(m).encode() + RA).hexdigest()
+    c_prime = hashlib.sha256(m + RA).hexdigest()
     if c_prime == c:
         return RA
     return None
 
-if __name__ == "__main__":
-    # AES密钥，长度必须是16、24或32字节
-    key = get_random_bytes(16)  # 生成一个16字节的随机密钥
+# 生成私钥和公钥对
+def generate_keys():
+    private_key = rsa.generate_private_key(
+        public_exponent=65537,
+        key_size=2048,
+        backend=default_backend(),  # 添加backend参数
+    )
+    public_key = private_key.public_key()
+    private_key
 
-    # 要加密的数据
-    data = '1234'
+    # 返回私钥和公钥
+    return private_key, public_key
+
+# 使用公钥加密数据
+def encrypt_data(public_key, data):
+    ciphertext = public_key.encrypt(
+        data.encode(),
+        padding.OAEP(
+            mgf=padding.MGF1(algorithm=hashes.SHA256()),
+            algorithm=hashes.SHA256(),
+            label=None
+        )
+    )
+    return ciphertext
+
+# 使用私钥解密数据
+def decrypt_data(private_key, ciphertext):
+    original_message = private_key.decrypt(
+        ciphertext,
+        padding.OAEP(
+            mgf=padding.MGF1(algorithm=hashes.SHA256()),
+            algorithm=hashes.SHA256(),
+            label=None
+        )
+    )
+    return original_message.decode()
+
+# 将公钥转为字节数据
+def public_key_to_bytes(public_key):
+    # 使用PEM格式将公钥序列化为字节
+    public_bytes = public_key.public_bytes(
+        encoding=serialization.Encoding.PEM,
+        format=serialization.PublicFormat.SubjectPublicKeyInfo
+    )
+    return public_bytes
+
+# 从字节数据恢复公钥
+def bytes_to_public_key(public_bytes):
+    # 将PEM格式字节数据反序列化为公钥
+    public_key = serialization.load_pem_public_key(public_bytes, backend=default_backend())
+    return public_key
+
+# 测试示例
+if __name__ == "__main__":
+    # 生成密钥对
+    private_key, public_key = generate_keys()
+    
+    # 将公钥转为字节数据
+    public_key_bytes = public_key_to_bytes(public_key)
+    print(f"Public Key in bytes:\n{public_key_bytes}")
+
+    # 从字节数据恢复公钥
+    restored_public_key = bytes_to_public_key(public_key_bytes)
+    print(f"Restored Public Key:\n{restored_public_key}")
 
     # 加密数据
-    encrypted_data = Enc(data, key)
-    print(f'Encrypted data: {encrypted_data}')
+    message = "Hello, this is a secret message!"
+    ciphertext = encrypt_data(restored_public_key, message)
+    print(f"Encrypted: {ciphertext}")
 
     # 解密数据
-    decrypted_data = Dec(encrypted_data, key)
-    print(f'Decrypted data: {decrypted_data.decode()}')
+    decrypted_message = decrypt_data(private_key, ciphertext)
+    print(f"Decrypted: {decrypted_message}")

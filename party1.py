@@ -1,7 +1,7 @@
 import socket
 from DiffieHellman import DiffieHellman
 from SAS import SASParty
-from utils import send_large_number, receive_large_number, Enc, Dec
+from utils import send_large_number, receive_large_number, Enc, Dec, generate_keys, decrypt_data, public_key_to_bytes
 import subprocess
 
 # 初始化socket
@@ -14,55 +14,57 @@ print("Server is listening for incoming connections...")
 clientsocket, address = serversocket.accept()
 print(f"Connection from {address} has been established.")
 
-# Diffie-Hellman 密钥交换
-server_diffie_hellman = DiffieHellman()
+# # Diffie-Hellman 密钥交换
+# server_diffie_hellman = DiffieHellman()
 
-# 接收客户端公钥
-client_public_key = receive_large_number(clientsocket)
+# # 接收客户端公钥
+# client_public_key = receive_large_number(clientsocket)
 
-# 发送服务器公钥
-server_public_key = server_diffie_hellman.publicKey
-send_large_number(clientsocket, server_public_key)
+# # 发送服务器公钥
+# server_public_key = server_diffie_hellman.publicKey
+# send_large_number(clientsocket, server_public_key)
 
-# 生成共享密钥
-server_diffie_hellman.genKey(client_public_key)
-shared_secret = server_diffie_hellman.key
-shared_secret = shared_secret[:32]
-print(f"Shared secret generated: {shared_secret.hex()}")
+# # 生成共享密钥
+# server_diffie_hellman.genKey(client_public_key)
+# shared_secret = server_diffie_hellman.key
+# shared_secret = shared_secret[:32]
+# print(f"Shared secret generated: {shared_secret.hex()}")
 
 # 初始化 SAS-MA
-server_sas_party = SASParty()
+sas_party = SASParty()
 print("Server SAS-MA party initialized.")
 
-# 接收消息
-message_byte = clientsocket.recv(1024)
-message = Dec(message_byte, shared_secret).decode()
-print(f"Received message: {message}")
+# 初始化公私钥
+secKey, pubKey = generate_keys()
 
-# 接收承诺
-commitment_bytes = clientsocket.recv(1024)
-commitment = Dec(commitment_bytes, shared_secret).decode()
-print(f"Received commitment: {commitment}")
+# 发送公钥
+pubKey_byte = public_key_to_bytes(pubKey)
+clientsocket.send(pubKey_byte)
+print(f"Sending public key: {pubKey_byte.hex()[:32]}")
 
-# 生成随机值并发送给客户端
-R_B = server_sas_party.get_random_value()
-clientsocket.send(Enc(R_B, shared_secret))
-print(f"Sent R_B: {R_B.hex()}")
+# 生成并发送承诺
+commitment, decommitment = sas_party.commit(pubKey_byte)
+clientsocket.send(commitment.encode())
+print(f"Sending commitment: {commitment}")
 
-# 接收解承诺
-decommitment = clientsocket.recv(1024)
-decommitment = Dec(decommitment, shared_secret)
-print(f"Received decommitment: {decommitment[:32].hex()}")
+# 接收R_B
+R_B = clientsocket.recv(256)
+# commitment = Dec(commitment_bytes, shared_secret).decode()
+print(f"Received R_B: {R_B.hex()}")
 
-# 验证解承诺
-R_A = server_sas_party.open(message, commitment, decommitment)
-if R_A:
 
-    # 验证SAS
-    SAS = server_sas_party.compute_sas(R_A)
-    print(f"Computed SAS: {SAS}")
-else:
-    print("Commitment validation failed. Communication may have been tampered.")
+# 发送解承诺
+clientsocket.send(decommitment)
+print(f"Sending decommitment: {decommitment[:32].hex()}")
+
+# 计算SAS
+server_sas = sas_party.compute_sas(R_B)
+print(f"Please verify the SAS string of party1: {server_sas}")
+
+# 接受ciphertext
+ciphertext = clientsocket.recv(1024)
+password = decrypt_data(secKey, ciphertext)
+print(f"Received password: {password}")
 
 # 关闭连接
 clientsocket.close()

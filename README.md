@@ -2,8 +2,7 @@
 A implimentation of dsiPAKE
 
 ## Dependent Libraries
-A Diffie-Hellman implimentation from [code](https://github.com/lowazo/pyDHE.git);
-CHIP and CRISP implimentation fron [code](https://github.com/shapaz/CRISP.git);
+CHIP and CRISP implimentation from [code](https://github.com/shapaz/CRISP.git);
 
 ## Usage
 Clone and build the code using:
